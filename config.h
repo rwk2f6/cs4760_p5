@@ -46,7 +46,7 @@ typedef struct {
     unsigned int sec_timer;
     unsigned int nsec_timer;
 
-    resource allocated_resources[MAX_RESOURCE];
+    resource_struct allocated_resources[MAX_RESOURCE];
 
     int running_proc_pid[MAX_PROC];
 
@@ -56,3 +56,6 @@ typedef struct {
     int needs[MAX_PROC];
 
 } sh_mem_struct;
+
+void writeToLog(char *);
+void cleanup();

@@ -5,6 +5,7 @@ int shmem_id;
 int sem_id;
 int numOfProcs = 0;
 int proc_num = 0;
+char stringBuf[200];
 int log_line_num = 0;
 int numOfForks = 0;
 FILE* logfile_ptr;
@@ -28,15 +29,82 @@ int main(int argc, char *argv[])
     //Signal handling for child termination
 
     //Open logfile
+    logfile_ptr = fopen("logfile", "a");
+    writeToLog("Oss.c Logfile:\n\n");
+    writeToLog("Logfile created successfully!\n");
 
-    //Initialize semaphore for resource access
+
+    //Initialize semaphores for resource access
+    key_t sem_key = ftok("oss.c", "a");
+
+    if((sem_id = semget(sem_key, MAX_SEM, IPC_CREAT | 0666)) == -1)
+    {
+        perror("oss.c: Error with semget, exiting\n");
+        cleanup();
+    }
+
+    semctl(sem_id, RESOURCE_SEM, SETVAL, 1);
+    semctl(sem_id, CLOCK_SEM, SETVAL, 1);
+
+    writeToLog("Semaphores for resources and clock initialized\n");
 
     //Initialize shared memory
+    key_t shmem_key = ftok("process.c", "a");
+
+    if((shmem_id = shmget(shmem_key, (sizeof(resource_struct) * MAX_PROC) + sizeof(sh_mem_struct), IPC_CREAT | 0666)) == -1)
+    {
+        perror("oss.c: Error with shmget, exiting\n");
+        cleanup();
+    }
+
+    int i, j;
+    for (i = 0; i < MAX_RESOURCE; i++)
+    {
+        if((i + 1) % 10 == 0)
+        {
+            sh_mem_ptr->allocated_resources[i].sh_res = true;
+            sprintf(stringBuf, "R%d is now a sharable resource\n", i);
+            writeToLog(stringBuf);
+        }
+        else
+        {
+            sh_mem_ptr->allocated_resources[i].sh_res = false;
+            sprintf(stringBuf, "R%d is now a non sharable resource\n", i);
+            writeToLog(stringBuf);
+        }
+
+        sh_mem_ptr->allocated_resources[i].numOfInstances = 1 + (rand() % MAX_INSTANCE);
+        sh_mem_ptr->allocated_resources[i].numOfInstancesFree = sh_mem_ptr->allocated_resources[i].numOfInstances;
+        sprintf(stringBuf, "%d instances of R%d have been made\n", sh_mem_ptr->allocated_resources[i].numOfInstances, i);
+        writeToLog(stringBuf);
+
+        for (j = 0; j < MAX_PROC; j++)
+        {
+            sh_mem_ptr->allocated_resources[i].request_arr[j] = 0;
+            sh_mem_ptr->allocated_resources[i].allocated_arr[j] = 0;
+            sh_mem_ptr->allocated_resources[i].release_arr[j] = 0;
+        }
+    }
+
+    for (i = 0; i < MAX_PROC; i++)
+    {
+        //Fill out PID table
+        sh_mem_ptr->running_proc_pid[i] = 0;
+    }
+
+    //Initialize the logical clock
+    sh_mem_ptr->sec_timer = 0;
+    sh_mem_ptr->nsec_timer = 0;
+
+    writeToLog("Shared memory initialized\n");
 
     //Print shared resources in their initial state
 
     //Set alarm for 5 seconds
+    alarm(5);
+    writeToLog("Alarm has been set for 5 real seconds\n");
 
+    writeToLog("Main oss.c loop starting, logical clock begins\n");
     //Begin main loop
     while(1)
     {
@@ -51,4 +119,36 @@ int main(int argc, char *argv[])
     }
 
     return 0;
+}
+
+void writeToLog(char * string)
+{
+    log_line_num++;
+    //Make sure log file isn't 10000 lines long, if it is terminate
+    if (log_line_num <= 10000)
+    {
+        fputs(s, logfile_ptr);
+    }
+    else   
+    {
+        printf("Line count is greater than 10,000, exiting...\n");
+        fputs("OSS has reached 10,000 lines in the logfile and terminated\n", logfile_ptr);
+        cleanup();
+    }
+}
+
+void cleanup()
+{
+    fputs("OSS is terminating, cleaning up shared memory, semaphores, and child processes\n", logfile_ptr);
+    //Output resource report here
+    if (logfile_ptr != NULL)
+    {
+        fclose(logfile_ptr);
+    }
+    system("killall process");
+    sleep(3);
+    shmdt(sh_mem_ptr);
+    shmctl(shmem_id, IPC_RMID, NULL);
+    semctl(sem_id, IPC_RMID, NULL);
+    exit(0);
 }
