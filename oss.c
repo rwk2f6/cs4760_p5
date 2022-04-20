@@ -109,13 +109,49 @@ int main(int argc, char *argv[])
     while(1)
     {
         //Sem wait
+        sem_wait(RESOURCE_SEM);
 
         //Fork processes, but make sure not to create more than 18 at a time, 
+        if(numOfProcs == 0)
+        {
+            //fork
+        }
+        else if(numOfProcs < MAX_PROC)
+        {
+            //Check if there is room in the process table
+            if(timePassed())
+            {
+                //Enough time has passed for another fork
+                //fork
+            }
+        }
+
+        //If there are processes in the system
+        if(numOfProcs > 0)
+        {
+            //Check if any processes have finished
+            //Release resources if so
+            //Allocate resources that are available
+            //Check for deadlocks
+            deadlockdet_run++;
+        }
 
         //Sem signal
+        sem_signal(RESOURCE_SEM);
 
         //Update logical clock
+        sem_wait(CLOCK_SEM);
 
+        nano_time_pass = 1 + (rand() % 100000000);
+        sh_mem_ptr->nsec_timer += nano_time_pass;
+        //If too many nanoseconds pass, update seconds
+        if (sh_mem_ptr->nsec_timer >= 1000000000)
+        {
+            sh_mem_ptr->sec_timer += 1;
+            sh_mem_ptr->nsec_timer -= 1000000000;
+        }
+
+        sem_signal(CLOCK_SEM);
     }
 
     return 0;
@@ -151,4 +187,47 @@ void cleanup()
     shmctl(shmem_id, IPC_RMID, NULL);
     semctl(sem_id, IPC_RMID, NULL);
     exit(0);
+}
+
+void sem_signal(int sem_id)
+{
+    //Semaphore signal function
+    struct sembuf sem;
+    sem.sem_num = 0;
+    sem.sem_op = 1;
+    sem.sem_flg = 0;
+    semop(sem_id, &sem, 1);
+}
+
+void sem_wait(int sem_id)
+{
+    //Semaphore wait function
+    struct sembuf sem;
+    sem.sem_num = 0;
+    sem.sem_op = -1;
+    sem.sem_flg = 0;
+    semop(sem_id, &sem, 1);
+}
+
+bool timePassed()
+{
+    //Check if enough time has passed for another fork
+    if(sec_until_fork == sh_mem_ptr->sec_timer)
+    {
+        if(nsec_until_fork <= sh_mem_ptr->nsec_timer)
+        {
+            //Enough time has passed
+            return true;
+        }
+    }
+    else if(sec_until_fork < sh_mem_ptr->sec_timer)
+    {
+        //Enough time has passed
+        return true;
+    }
+    else
+    {
+        //Not enough time has passed
+        return false;
+    }
 }

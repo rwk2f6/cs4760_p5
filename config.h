@@ -59,3 +59,7 @@ typedef struct {
 
 void writeToLog(char *);
 void cleanup();
+void sem_signal(int);
+void sem_wait(int);
+bool timePassed();
+
