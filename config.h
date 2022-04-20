@@ -62,4 +62,8 @@ void cleanup();
 void sem_signal(int);
 void sem_wait(int);
 bool timePassed();
+void fork_process();
+void sig_handler();
+bool checkSysClock();
+int findIndex(int);
 

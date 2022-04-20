@@ -25,6 +25,10 @@ unsigned long nano_time_pass = 0;
 int main(int argc, char *argv[])
 {
     //Signal handlers for timer, CTRL-C, and random termination
+    signal(SIGALRM, sig_handler); //Catches alarm
+    signal(SIGINT, sig_handler); //Catches ctrl-c
+    signal(SIGSEGV, sig_handler); //Catches seg fault
+    signal(SIGKILL, sig_handler); //Catches a kill signal
 
     //Signal handling for child termination
 
@@ -115,6 +119,7 @@ int main(int argc, char *argv[])
         if(numOfProcs == 0)
         {
             //fork
+            fork_process();
         }
         else if(numOfProcs < MAX_PROC)
         {
@@ -122,7 +127,7 @@ int main(int argc, char *argv[])
             if(timePassed())
             {
                 //Enough time has passed for another fork
-                //fork
+                fork_process();
             }
         }
 
@@ -230,4 +235,52 @@ bool timePassed()
         //Not enough time has passed
         return false;
     }
+}
+
+void fork_process()
+{
+    //Keep track of total processes and terminate if it reaches 40
+    for (numOfForks >= 40)
+    {
+        printf("oss.c: Terminating as 40 total children have been forked\n");
+        writeToLog("oss.c: Terminating as 40 total children have been forked\n");
+        cleanup();
+    }
+    int index, pid;
+    for (index = 0; index < MAX_PROC; index++)
+    {
+        if(sh_mem_ptr->running_proc_pid[index] == 0)
+        {
+            numOfProcs++;
+            numOfForks++;
+            pid = fork();
+
+            if(pid != 0)
+            {
+                sprintf(stringBuf, "Process %d with PID: %d was forked at %d : %d\n", index, pid, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
+                writeToLog(stringBuf);
+                sh_mem_ptr->running_proc_pid[index] = pid;
+                //Determine next time to fork
+                writeToLog("Determining when next process will fork\n");
+                nsec_until_fork = sh_mem_ptr->nsec_timer + (rand() % 500000000);
+                unsigned long nano_time_fork = nsec_until_fork;
+                if (nano_time_fork >= 1000000000)
+                {
+                    sec_until_fork += 1;
+                    nsec_until_fork -= 1000000000;
+                }
+                return;
+            }
+            else
+            {
+                execl("./process", "./process", (char*)0);
+            }
+        }
+    }
+}
+
+void sig_handler()
+{
+    //Called by signal functions to cleanup child processes, shared memory, and semaphores
+    cleanup();
 }
