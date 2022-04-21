@@ -66,4 +66,7 @@ void fork_process();
 void sig_handler();
 bool checkSysClock();
 int findIndex(int);
+void allocate_resources();
+void completed_process();
+void release_resources();
 

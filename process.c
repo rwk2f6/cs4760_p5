@@ -26,7 +26,7 @@ int main(int argc, char *argv[])
     signal(SIGKILL, sig_handler); //Catches a kill signal
 
     //Initialize semaphore for resource access
-    key_t sem_key = ftok("oss.c", "a");
+    key_t sem_key = ftok("oss.c", 'a');
 
     if((sem_id = semget(sem_key, MAX_SEM, 0)) == -1)
     {
@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     }
 
     //Initialize shared memory
-    key_t shmem_key = ftok("process.c", "a");
+    key_t shmem_key = ftok("process.c", 'a');
 
     if((shmem_id = shmget(shmem_key, (sizeof(resource_struct) * MAX_PROC) + sizeof(sh_mem_struct), IPC_EXCL)) == -1)
     {
@@ -99,8 +99,74 @@ int main(int argc, char *argv[])
                 break;
             }
         }
-
         //Process now checks to see if it got its resources
+        if (sh_mem_ptr->sleeping_proc_arr[cur_index] == 1 || sh_mem_ptr->blocked[cur_index] == true)
+        {
+            //Do nothing, as these processes are waiting
+        }
+        else
+        {
+            //The process isn't waiting
+            //Make sure the process has been running for at least a second
+            if (sh_mem_ptr->sec_timer - starting_sec > 1)
+            {
+                if (sh_mem_ptr->nsec_timer > starting_nsec )
+                {
+                    if (rand() % 100 == 22)
+                    {
+                        //Small chance to randomly terminate early
+                        sem_wait(RESOURCE_SEM);
+                        sh_mem_ptr->complete[cur_index] = EARLY_TERM;
+                        sem_signal(RESOURCE_SEM);
+                        break;
+                    }
+                }
+            }
+            //Didn't terminate early, so pick a random resource to request or release
+            random_resource = rand() % MAX_RESOURCE;
+            sem_wait(RESOURCE_SEM);
+
+            if (sh_mem_ptr->allocated_resources[random_resource].allocated_arr[cur_index] > 0)
+            {
+                //Has resources allocated, 50% chance to release
+                if (rand() % 100 < 50)
+                {
+                    printf("P%d is releasing R%d\n", cur_index, random_resource);
+                    sh_mem_ptr->allocated_resources[random_resource].release_arr[cur_index] = sh_mem_ptr->allocated_resources[random_resource].allocated_arr[cur_index];
+                    sh_mem_ptr->blocked[cur_index] = true;
+                }
+            }
+            else
+            {
+                //No resources allocated
+                if (rand() % 100 < 50)
+                {
+                    random_instance = 1 + (rand() % sh_mem_ptr->allocated_resources[random_resource].numOfInstances);
+                    if (random_instance > 0)
+                    {
+                        printf("P%d is requesting to get %d instances of R%d\n", cur_index, random_instance, random_resource);
+                        sh_mem_ptr->allocated_resources[random_resource].request_arr[cur_index] = random_instance;
+                        sh_mem_ptr->blocked[cur_index] = true;
+                    }
+                }
+            }
+            sem_signal(RESOURCE_SEM);
+
+            //Make a wait time for next request/release
+            sem_wait(CLOCK_SEM);
+
+            random_time = rand() % 250000000;
+            wait_nsec = sh_mem_ptr->nsec_timer;
+            wait_nsec += random_time;
+            if (wait_nsec >= 1000000000)
+            {
+                wait_nsec -= 1000000000;
+                wait_sec += 1;
+            }
+
+            sem_signal(CLOCK_SEM);
+
+        }
     }
 
     cleanup();

@@ -8,6 +8,7 @@ int proc_num = 0;
 char stringBuf[200];
 int log_line_num = 0;
 int numOfForks = 0;
+int resourcesGranted = 0;
 FILE* logfile_ptr;
 sh_mem_struct* sh_mem_ptr;
 
@@ -39,7 +40,7 @@ int main(int argc, char *argv[])
 
 
     //Initialize semaphores for resource access
-    key_t sem_key = ftok("oss.c", "a");
+    key_t sem_key = ftok("oss.c", 'a');
 
     if((sem_id = semget(sem_key, MAX_SEM, IPC_CREAT | 0666)) == -1)
     {
@@ -53,7 +54,7 @@ int main(int argc, char *argv[])
     writeToLog("Semaphores for resources and clock initialized\n");
 
     //Initialize shared memory
-    key_t shmem_key = ftok("process.c", "a");
+    key_t shmem_key = ftok("process.c", 'a');
 
     if((shmem_id = shmget(shmem_key, (sizeof(resource_struct) * MAX_PROC) + sizeof(sh_mem_struct), IPC_CREAT | 0666)) == -1)
     {
@@ -135,6 +136,7 @@ int main(int argc, char *argv[])
         if(numOfProcs > 0)
         {
             //Check if any processes have finished
+            completed_process();
             //Release resources if so
             //Allocate resources that are available
             //Check for deadlocks
@@ -168,7 +170,7 @@ void writeToLog(char * string)
     //Make sure log file isn't 10000 lines long, if it is terminate
     if (log_line_num <= 10000)
     {
-        fputs(s, logfile_ptr);
+        fputs(string, logfile_ptr);
     }
     else   
     {
@@ -190,7 +192,7 @@ void cleanup()
     sleep(3);
     shmdt(sh_mem_ptr);
     shmctl(shmem_id, IPC_RMID, NULL);
-    semctl(sem_id, IPC_RMID, NULL);
+    semctl(sem_id, 0, IPC_RMID, NULL);
     exit(0);
 }
 
@@ -240,12 +242,13 @@ bool timePassed()
 void fork_process()
 {
     //Keep track of total processes and terminate if it reaches 40
-    for (numOfForks >= 40)
+    if (numOfForks >= 40)
     {
         printf("oss.c: Terminating as 40 total children have been forked\n");
         writeToLog("oss.c: Terminating as 40 total children have been forked\n");
         cleanup();
     }
+
     int index, pid;
     for (index = 0; index < MAX_PROC; index++)
     {
@@ -257,7 +260,7 @@ void fork_process()
 
             if(pid != 0)
             {
-                sprintf(stringBuf, "Process %d with PID: %d was forked at %d : %d\n", index, pid, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
+                sprintf(stringBuf, "P%d with PID: %d was forked at %d : %d\n", index, pid, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
                 writeToLog(stringBuf);
                 sh_mem_ptr->running_proc_pid[index] = pid;
                 //Determine next time to fork
@@ -283,4 +286,97 @@ void sig_handler()
 {
     //Called by signal functions to cleanup child processes, shared memory, and semaphores
     cleanup();
+}
+
+void allocate_resources()
+{
+    printf("Looking for resource requests\n");
+    for (int i = 0; i < MAX_PROC; i++)
+    {
+        if (sh_mem_ptr->sleeping_proc_arr[i] == 0)
+        {
+            for (int j = 0; j < MAX_RESOURCE; j++)
+            {
+                if (sh_mem_ptr->allocated_resources[j].request_arr[i] > 0)
+                {
+                    //A process is requesting a resource
+                    sprintf(stringBuf, "P%d is requesting %d instances of R%d \n", i, sh_mem_ptr->allocated_resources[j].request_arr[i], j);
+                    writeToLog(stringBuf);
+
+                    //Validate there are enough resources to satisfy the request
+                    if (sh_mem_ptr->allocated_resources[j].request_arr[i] <= sh_mem_ptr->allocated_resources[j].numOfInstancesFree)
+                    {
+                        //The request is smaller than what is available, so grant it resources
+                        sh_mem_ptr->allocated_resources[j].numOfInstancesFree -= sh_mem_ptr->allocated_resources[j].request_arr[i];
+                        sh_mem_ptr->allocated_resources[j].allocated_arr[i] = sh_mem_ptr->allocated_resources[j].request_arr[i];
+                        sh_mem_ptr->allocated_resources[j].request_arr[i] = 0;
+                        sh_mem_ptr->sleeping_proc_arr[i] = 0;
+                        sh_mem_ptr->blocked[i] = false;
+                        instant_resource_allo++;
+                        resourcesGranted += sh_mem_ptr->allocated_resources[j].allocated_arr[i];
+                        sprintf(stringBuf, "P%d has access to R%d at %d : %d\n", i, j, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
+                        writeToLog(stringBuf);
+                    }
+                    else
+                    {
+                        //The request is too large
+                        sprintf(stringBuf, "P%d is being put to sleep at %d : %d. There were not enough instances of R%d\n", i, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer, j);
+                        writeToLog(stringBuf);
+                        sh_mem_ptr->needs[i] = j;
+                        sh_mem_ptr->sleeping_proc_arr[i] = 1;
+                    }
+                }
+            }
+        }
+    }
+    printf("Done looking for resource requests\n");
+}
+
+void completed_process()
+{
+    printf("Looking for completed processes\n");
+    //Check for any processes that were able to complete
+    for (int i = 0; i < MAX_PROC; i++)
+    {
+        if (sh_mem_ptr->complete[i] == EARLY_TERM)
+        {
+            sprintf(stringBuf, "P%d terminated early at time %d : %d, releasing it's resources\n", i, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
+            writeToLog(stringBuf);
+            sh_mem_ptr->running_proc_pid[i] = 0;
+            for (int j = 0; j < MAX_RESOURCE; j++)
+            {
+                if (sh_mem_ptr->allocated_resources[j].allocated_arr[i] > 0)
+                {
+                    //Process had allocated resources, so we release them
+                    sh_mem_ptr->allocated_resources[j].numOfInstancesFree += sh_mem_ptr->allocated_resources[j].allocated_arr[i];
+                }
+            }
+        }
+    }
+    printf("Done looking for completed processes\n");
+}
+
+void release_resources()
+{
+    printf("Looking for resource release requests\n");
+    for (int i = 0; i < MAX_PROC; i++)
+    {
+        for (int j = 0; j < MAX_RESOURCE; j++)
+        {
+            if (sh_mem_ptr->allocated_resources[j].release_arr[i] > 0)
+            {
+                //Found a process that needs to release resources
+                sprintf(stringBuf, "P%d is releasing R%d at %d : %d\n", i, j, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
+                writeToLog(stringBuf);
+
+                //Free resources
+                sh_mem_ptr->allocated_resources[j].numOfInstancesFree += sh_mem_ptr->allocated_resources[j].allocated_arr[i];
+                sh_mem_ptr->allocated_resources[j].release_arr[i] = 0;
+                sh_mem_ptr->allocated_resources[j].allocated_arr[i] -= sh_mem_ptr->allocated_resources[j].allocated_arr[i];
+                sh_mem_ptr->blocked[i] = false;
+                numOfProcs--; 
+            }
+        }
+    }
+    printf("Done looking for resource release requests\n");
 }
