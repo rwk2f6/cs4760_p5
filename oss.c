@@ -38,6 +38,8 @@ int main(int argc, char *argv[])
     writeToLog("Oss.c Logfile:\n\n");
     writeToLog("Logfile created successfully!\n");
 
+    printf("Logfile created\n");
+
 
     //Initialize semaphores for resource access
     key_t sem_key = ftok("oss.c", 'a');
@@ -52,6 +54,7 @@ int main(int argc, char *argv[])
     semctl(sem_id, CLOCK_SEM, SETVAL, 1);
 
     writeToLog("Semaphores for resources and clock initialized\n");
+    printf("Semaphores initialized\n");
 
     //Initialize shared memory
     key_t shmem_key = ftok("process.c", 'a');
@@ -61,6 +64,8 @@ int main(int argc, char *argv[])
         perror("oss.c: Error with shmget, exiting\n");
         cleanup();
     }
+
+    printf("Shared memory gotten, initializing\n");
 
     int i, j;
     for (i = 0; i < MAX_RESOURCE; i++)
@@ -91,11 +96,15 @@ int main(int argc, char *argv[])
         }
     }
 
+    printf("Shared memory initialized\n");
+
     for (i = 0; i < MAX_PROC; i++)
     {
         //Fill out PID table
         sh_mem_ptr->running_proc_pid[i] = 0;
     }
+
+    printf("PID Table filled out\n");
 
     //Initialize the logical clock
     sh_mem_ptr->sec_timer = 0;
@@ -138,8 +147,11 @@ int main(int argc, char *argv[])
             //Check if any processes have finished
             completed_process();
             //Release resources if so
+            release_resources();
             //Allocate resources that are available
+            allocate_resources();
             //Check for deadlocks
+            deadlock_detection();
             deadlockdet_run++;
         }
 
@@ -188,7 +200,7 @@ void cleanup()
     {
         fclose(logfile_ptr);
     }
-    system("killall process");
+    //system("killall process");
     sleep(3);
     shmdt(sh_mem_ptr);
     shmctl(shmem_id, IPC_RMID, NULL);
@@ -276,7 +288,7 @@ void fork_process()
             }
             else
             {
-                execl("./process", "./process", (char*)0);
+                execl("./process", "./process", NULL);
             }
         }
     }
@@ -286,6 +298,66 @@ void sig_handler()
 {
     //Called by signal functions to cleanup child processes, shared memory, and semaphores
     cleanup();
+}
+
+void deadlock_detection()
+{
+    int resource;
+    for (int i = 0; i < MAX_PROC; i++)
+    {
+        if (sh_mem_ptr->sleeping_proc_arr[i] == 1)
+        {
+            //Found a sleeping process
+            resource = sh_mem_ptr->needs[i];
+            while(1)
+            {
+                for (int j = 0; j < MAX_PROC; j++)
+                {
+                    //Goes through all processes, looking for sleeping ones that have a resource we need
+                    if (j != i)
+                    {
+                        //Makes sure it doesn't see itself and try to terminate itself
+                        if (sh_mem_ptr->allocated_resources[resource].allocated_arr[j] > 0 && sh_mem_ptr->sleeping_proc_arr[j] == 1)
+                        {
+                            //This process is sleeping and has resources
+                            sprintf(stringBuf, "Deadlock detected! P%d will be killed to free R%d for P%d\n", j, resource, i);
+                            writeToLog(stringBuf);
+                            term_by_deadlock++;
+                            //Free resources
+                            sh_mem_ptr->allocated_resources[resource].numOfInstancesFree += sh_mem_ptr->allocated_resources[resource].allocated_arr[j];
+                            sh_mem_ptr->allocated_resources[resource].release_arr[j] = 0;
+                            sh_mem_ptr->allocated_resources[resource].allocated_arr[j] = 0;
+                            sh_mem_ptr->allocated_resources[resource].request_arr[j] = 0;
+
+                            //Remove from PID table
+                            sh_mem_ptr->running_proc_pid[j] = 0;
+
+                            sh_mem_ptr->complete[j] = OSS_KILL;
+                            numOfProcs--;
+
+                            //Check if this solved the deadlock
+                            if (sh_mem_ptr->allocated_resources[resource].request_arr[i] <= sh_mem_ptr->allocated_resources[resource].numOfInstancesFree)
+                            {
+                                //Allocate these resources
+                                sh_mem_ptr->allocated_resources[resource].numOfInstancesFree -= sh_mem_ptr->allocated_resources[resource].request_arr[i];
+                                sh_mem_ptr->allocated_resources[resource].allocated_arr[i] += sh_mem_ptr->allocated_resources[resource].request_arr[i];
+                                sh_mem_ptr->allocated_resources[resource].request_arr[i] = 0;
+
+                                sprintf(stringBuf, "P%d has been given access to R%d at %d : %d\n", i, resource, sh_mem_ptr->sec_timer, sh_mem_ptr->nsec_timer);
+                                writeToLog(stringBuf);
+                                waited_for_allo++;
+
+                                sh_mem_ptr->sleeping_proc_arr[i] = 0;
+                                sh_mem_ptr->blocked[i] = false;
+                                return;
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
 }
 
 void allocate_resources()

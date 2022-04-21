@@ -69,4 +69,5 @@ int findIndex(int);
 void allocate_resources();
 void completed_process();
 void release_resources();
+void deadlock_detection();
 
