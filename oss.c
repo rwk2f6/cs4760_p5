@@ -29,7 +29,7 @@ unsigned long deadlockDetTimer = 0;
 int main(int argc, char *argv[])
 {
     //Signal handlers for timer, CTRL-C, and random termination
-    signal(SIGALRM, sig_handler); //Catches alarm
+    signal(SIGALRM, alarm_handler); //Catches alarm
     signal(SIGINT, sig_handler); //Catches ctrl-c
     signal(SIGSEGV, sig_handler); //Catches seg fault
     signal(SIGKILL, sig_handler); //Catches a kill signal
@@ -149,14 +149,16 @@ int main(int argc, char *argv[])
             release_resources();
             //Allocate resources that are available
             allocate_resources();
-        }
-
-        if (sh_mem_ptr->sec_timer - deadlockDetTimer >= 1)
-        {
             deadlock_detection();
             deadlockdet_run++;
-            deadlockDetTimer = sh_mem_ptr->sec_timer;
         }
+
+        // if (sh_mem_ptr->sec_timer - deadlockDetTimer >= 1)
+        // {
+        //     deadlock_detection();
+        //     deadlockdet_run++;
+        //     deadlockDetTimer = sh_mem_ptr->sec_timer;
+        // }
 
         //Sem signal
         sem_signal(RESOURCE_SEM);
@@ -175,7 +177,7 @@ int main(int argc, char *argv[])
 
         sem_signal(CLOCK_SEM);
 
-        if (sh_mem_ptr->sec_timer - curResTimer >= 10)
+        if (sh_mem_ptr->sec_timer - curResTimer >= 30)
         {
             curResourceAllo();
             curResTimer = sh_mem_ptr->sec_timer;
@@ -203,6 +205,7 @@ void writeToLog(char * string)
 
 void cleanup()
 {
+    printf("Cleanup called\n");
     curResourceAllo();
     finalReport();
     fputs("OSS is terminating, cleaning up shared memory, semaphores, and child processes\n", logfile_ptr);
@@ -308,6 +311,13 @@ void fork_process()
 void sig_handler()
 {
     //Called by signal functions to cleanup child processes, shared memory, and semaphores
+    printf("Sig_Handler called\n");
+    cleanup();
+}
+
+void alarm_handler()
+{
+    printf("alarm_handler called, 5 seconds have passed\n");
     cleanup();
 }
 

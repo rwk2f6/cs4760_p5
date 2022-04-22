@@ -71,4 +71,5 @@ void deadlock_detection();
 void stopZombies(int);
 void curResourceAllo();
 void finalReport();
+void alarm_handler();
 
