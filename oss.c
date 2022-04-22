@@ -177,7 +177,7 @@ int main(int argc, char *argv[])
 
         sem_signal(CLOCK_SEM);
 
-        if (sh_mem_ptr->sec_timer - curResTimer >= 30)
+        if (sh_mem_ptr->sec_timer - curResTimer >= 1000)
         {
             curResourceAllo();
             curResTimer = sh_mem_ptr->sec_timer;
