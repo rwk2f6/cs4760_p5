@@ -3,7 +3,7 @@
 //Global variables
 int shmem_id;
 int sem_id;
-sh_mem_struct* sh_mem_ptr;
+sh_mem_struct* sh_mem_ptr = NULL;
 int cur_pid;
 int cur_index;
 char stringBuf[200];
@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
                 //Has resources allocated, 50% chance to release
                 if (rand() % 100 < 50)
                 {
-                    printf("P%d is releasing R%d\n", cur_index, random_resource);
+                    //printf("P%d is releasing R%d\n", cur_index, random_resource);
                     sh_mem_ptr->allocated_resources[random_resource].release_arr[cur_index] = sh_mem_ptr->allocated_resources[random_resource].allocated_arr[cur_index];
                     sh_mem_ptr->blocked[cur_index] = true;
                 }
@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
                     random_instance = 1 + (rand() % sh_mem_ptr->allocated_resources[random_resource].numOfInstances);
                     if (random_instance > 0)
                     {
-                        printf("P%d is requesting to get %d instances of R%d\n", cur_index, random_instance, random_resource);
+                        //printf("P%d is requesting to get %d instances of R%d\n", cur_index, random_instance, random_resource);
                         sh_mem_ptr->allocated_resources[random_resource].request_arr[cur_index] = random_instance;
                         sh_mem_ptr->blocked[cur_index] = true;
                     }

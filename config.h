@@ -33,8 +33,6 @@ typedef struct {
     int numOfInstances;
     int numOfInstancesFree;
 
-    bool sh_res;
-
     int request_arr[MAX_PROC];
     int allocated_arr[MAX_PROC];
     int release_arr[MAX_PROC];
@@ -70,4 +68,7 @@ void allocate_resources();
 void completed_process();
 void release_resources();
 void deadlock_detection();
+void stopZombies(int);
+void curResourceAllo();
+void finalReport();
 
